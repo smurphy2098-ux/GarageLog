@@ -42,7 +42,7 @@ export async function migrate(): Promise<{ ok: boolean; count: number; error?: s
 
   try {
     const migrationsDir = join(__dirname, "migrations");
-    const files = ["001_initial.sql", "002_sessions.sql"]; // ordered list of migrations
+    const files = ["001_initial.sql", "002_sessions.sql", "003_waitlist.sql"]; // ordered list of migrations
 
     const db = neon(url);
     for (const file of files) {
