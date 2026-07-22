@@ -26,12 +26,7 @@ function CarDetailPage() {
     car: any; entries: any[]; stats: { entry_count: number; total_spent: number; miles_driven: number };
   } | null>(null);
   const [loading, setLoading] = useState(true);
-  const [showEntryForm, setShowEntryForm] = useState(false);
-  const [entryForm, setEntryForm] = useState({
-    entry_type: "service", title: "", description: "", mileage: "", date: "", cost: "", vendor: "",
-  });
-  const [saving, setSaving] = useState(false);
-  const [entryErrors, setEntryErrors] = useState<string[]>([]);
+  const [expandedEntry, setExpandedEntry] = useState<string | null>(null);
 
   const loadCar = () => {
     setLoading(true);
@@ -43,36 +38,6 @@ function CarDetailPage() {
   };
 
   useEffect(() => { loadCar(); }, [id]);
-
-  const handleEntrySubmit = async (e: React.FormEvent) => {
-    e.preventDefault();
-    setSaving(true);
-    setEntryErrors([]);
-    try {
-      const res = await fetch(`/api/cars/${id}/entries`, {
-        method: "POST",
-        headers: { "content-type": "application/json" },
-        body: JSON.stringify({
-          entry_type: entryForm.entry_type,
-          title: entryForm.title,
-          description: entryForm.description || undefined,
-          mileage: entryForm.mileage ? Number(entryForm.mileage) : undefined,
-          date: entryForm.date || undefined,
-          cost: entryForm.cost ? Number(entryForm.cost) : undefined,
-          vendor: entryForm.vendor || undefined,
-        }),
-      });
-      const d = await res.json();
-      if (d.ok) {
-        setShowEntryForm(false);
-        setEntryForm({ entry_type: "service", title: "", description: "", mileage: "", date: "", cost: "", vendor: "" });
-        loadCar();
-      } else {
-        setEntryErrors(d.errors || ["Failed to create entry"]);
-      }
-    } catch { setEntryErrors(["An error occurred"]); }
-    finally { setSaving(false); }
-  };
 
   if (loading) {
     return (
@@ -104,10 +69,19 @@ function CarDetailPage() {
     service: "🔧", modification: "⚡", milestone: "🏆", other: "📝",
   };
 
+  // Group entries by month/year
+  const groupedEntries = entries.reduce((groups: Record<string, any[]>, entry: any) => {
+    const d = entry.date ? new Date(entry.date) : new Date(entry.created_at);
+    const key = d.toLocaleDateString("en-US", { month: "long", year: "numeric" });
+    if (!groups[key]) groups[key] = [];
+    groups[key].push(entry);
+    return groups;
+  }, {});
+
   return (
     <div className="min-h-dvh bg-[#0a0a0f]">
       {/* Header */}
-      <header className="border-b border-white/5 bg-[#0a0a0f]/80 backdrop-blur-xl">
+      <header className="fixed top-0 z-50 w-full border-b border-white/5 bg-[#0a0a0f]/80 backdrop-blur-xl">
         <div className="mx-auto flex max-w-5xl items-center justify-between px-6 py-4">
           <a href="/dashboard" className="flex items-center gap-2 text-lg font-bold text-white">
             <svg className="h-5 w-5" fill="none" viewBox="0 0 24 24" strokeWidth={2} stroke="currentColor">
@@ -115,10 +89,16 @@ function CarDetailPage() {
             </svg>
             Garage<span className="text-amber-400">Log</span>
           </a>
+          <a
+            href={`/cars/${id}/entries/new`}
+            className="rounded-xl bg-amber-500 px-4 py-2 text-sm font-semibold text-black hover:bg-amber-400 transition-colors"
+          >
+            + Add Entry
+          </a>
         </div>
       </header>
 
-      <main className="mx-auto max-w-5xl px-6 py-8">
+      <main className="mx-auto max-w-5xl px-6 pt-24 pb-16">
         {/* Car hero */}
         <div className="mb-8 overflow-hidden rounded-2xl border border-white/5">
           <div className="aspect-[21/9] bg-white/5">
@@ -145,20 +125,11 @@ function CarDetailPage() {
                   {car.color && (
                     <span className="flex items-center gap-1">
                       <span className="h-3 w-3 rounded-full" style={{ backgroundColor: car.color }} />
-                      {car.color}
                     </span>
                   )}
+                  {car.mileage && <span>{Number(car.mileage).toLocaleString()} mi</span>}
                 </div>
               </div>
-              <button
-                onClick={() => setShowEntryForm(true)}
-                className="inline-flex items-center gap-2 rounded-xl bg-amber-500 px-6 py-3 font-semibold text-black hover:bg-amber-400 transition-colors"
-              >
-                <svg className="h-5 w-5" fill="none" viewBox="0 0 24 24" strokeWidth={2} stroke="currentColor">
-                  <path strokeLinecap="round" strokeLinejoin="round" d="M12 4.5v15m7.5-7.5h-15" />
-                </svg>
-                Add Entry
-              </button>
             </div>
           </div>
         </div>
@@ -179,114 +150,125 @@ function CarDetailPage() {
           </div>
         </div>
 
-        {/* Add Entry Form */}
-        {showEntryForm && (
-          <div className="mb-8 rounded-xl border border-amber-500/20 bg-amber-500/5 p-6">
-            <h3 className="mb-4 text-lg font-semibold text-white">New Entry</h3>
-            <form onSubmit={handleEntrySubmit} className="space-y-4">
-              <div className="grid gap-4 sm:grid-cols-2">
-                <div>
-                  <label className="mb-1 block text-sm font-medium text-gray-300">Type</label>
-                  <select name="entry_type" value={entryForm.entry_type}
-                    onChange={(e) => setEntryForm((p) => ({ ...p, entry_type: e.target.value }))}
-                    className="w-full rounded-xl border border-white/10 bg-white/5 px-4 py-3 text-white outline-none focus:border-amber-500/50">
-                    <option value="service">Service</option>
-                    <option value="modification">Modification</option>
-                    <option value="milestone">Milestone</option>
-                    <option value="other">Other</option>
-                  </select>
-                </div>
-                <div>
-                  <label className="mb-1 block text-sm font-medium text-gray-300">Date</label>
-                  <input type="date" value={entryForm.date}
-                    onChange={(e) => setEntryForm((p) => ({ ...p, date: e.target.value }))}
-                    className="w-full rounded-xl border border-white/10 bg-white/5 px-4 py-3 text-white outline-none focus:border-amber-500/50" />
-                </div>
-              </div>
-              <div>
-                <label className="mb-1 block text-sm font-medium text-gray-300">Title *</label>
-                <input required value={entryForm.title}
-                  onChange={(e) => setEntryForm((p) => ({ ...p, title: e.target.value }))}
-                  className="w-full rounded-xl border border-white/10 bg-white/5 px-4 py-3 text-white outline-none focus:border-amber-500/50" />
-              </div>
-              <div>
-                <label className="mb-1 block text-sm font-medium text-gray-300">Description</label>
-                <textarea rows={2} value={entryForm.description}
-                  onChange={(e) => setEntryForm((p) => ({ ...p, description: e.target.value }))}
-                  className="w-full rounded-xl border border-white/10 bg-white/5 px-4 py-3 text-white outline-none focus:border-amber-500/50" />
-              </div>
-              <div className="grid gap-4 sm:grid-cols-3">
-                <div>
-                  <label className="mb-1 block text-sm font-medium text-gray-300">Mileage</label>
-                  <input type="number" value={entryForm.mileage}
-                    onChange={(e) => setEntryForm((p) => ({ ...p, mileage: e.target.value }))}
-                    className="w-full rounded-xl border border-white/10 bg-white/5 px-4 py-3 text-white outline-none focus:border-amber-500/50" />
-                </div>
-                <div>
-                  <label className="mb-1 block text-sm font-medium text-gray-300">Cost ($)</label>
-                  <input type="number" step="0.01" value={entryForm.cost}
-                    onChange={(e) => setEntryForm((p) => ({ ...p, cost: e.target.value }))}
-                    className="w-full rounded-xl border border-white/10 bg-white/5 px-4 py-3 text-white outline-none focus:border-amber-500/50" />
-                </div>
-                <div>
-                  <label className="mb-1 block text-sm font-medium text-gray-300">Vendor</label>
-                  <input value={entryForm.vendor}
-                    onChange={(e) => setEntryForm((p) => ({ ...p, vendor: e.target.value }))}
-                    className="w-full rounded-xl border border-white/10 bg-white/5 px-4 py-3 text-white outline-none focus:border-amber-500/50" />
-                </div>
-              </div>
-              {entryErrors.length > 0 && (
-                <div className="rounded-xl bg-red-500/10 px-4 py-3 text-sm text-red-400">
-                  {entryErrors.map((e, i) => <p key={i}>{e}</p>)}
-                </div>
-              )}
-              <div className="flex items-center gap-3">
-                <button type="submit" disabled={saving}
-                  className="rounded-xl bg-amber-500 px-6 py-2.5 font-semibold text-black hover:bg-amber-400 disabled:opacity-50 transition-colors">
-                  {saving ? "Saving..." : "Save Entry"}
-                </button>
-                <button type="button" onClick={() => setShowEntryForm(false)}
-                  className="text-sm text-gray-500 hover:text-gray-300 transition-colors">Cancel</button>
-              </div>
-            </form>
-          </div>
-        )}
-
         {/* Timeline */}
-        <h2 className="mb-4 text-xl font-bold text-white">Timeline</h2>
+        <h2 className="mb-6 text-xl font-bold text-white">Timeline</h2>
         {entries.length === 0 ? (
           <div className="rounded-xl border-2 border-dashed border-white/10 p-12 text-center">
-            <p className="text-gray-500">No entries yet. Add your first service, mod, or milestone.</p>
+            <p className="text-gray-500">No entries yet.</p>
+            <a href={`/cars/${id}/entries/new`}
+              className="mt-4 inline-flex items-center gap-2 rounded-xl bg-amber-500 px-6 py-3 font-semibold text-black hover:bg-amber-400 transition-colors">
+              Add Your First Entry
+            </a>
           </div>
         ) : (
-          <div className="relative space-y-0">
+          <div className="relative space-y-12">
             {/* Timeline line */}
-            <div className="absolute left-[19px] top-0 h-full w-0.5 bg-white/5" />
-            {entries.map((entry: any) => (
-              <div key={entry.id} className="relative flex gap-4 pb-8">
-                {/* Dot */}
-                <div className={`relative z-10 mt-1 flex h-10 w-10 shrink-0 items-center justify-center rounded-full border text-sm ${entryTypeColors[entry.entry_type] || entryTypeColors.other}`}>
-                  {entryTypeIcons[entry.entry_type] || "📝"}
+            <div className="absolute left-[23px] top-0 h-full w-0.5 bg-gradient-to-b from-amber-500/30 via-white/5 to-transparent" />
+
+            {Object.entries(groupedEntries).map(([monthYear, monthEntries]) => (
+              <div key={monthYear}>
+                {/* Month/year divider */}
+                <div className="relative z-10 mb-6 flex items-center gap-4">
+                  <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-full border border-amber-500/20 bg-amber-500/10 text-xs font-bold text-amber-400">
+                    {new Date(monthYear).toLocaleDateString("en-US", { month: "short" })}
+                  </div>
+                  <h3 className="text-lg font-semibold text-gray-300">{monthYear}</h3>
+                  <div className="h-px flex-1 bg-white/5" />
                 </div>
-                {/* Card */}
-                <div className="card-gradient card-border group flex-1 rounded-xl p-4 transition-all hover:border-white/10">
-                  <div className="flex items-start justify-between gap-2">
-                    <div>
-                      <h3 className="font-semibold text-white">{entry.title}</h3>
-                      <p className="text-xs text-gray-500 capitalize">{entry.entry_type}</p>
-                    </div>
-                    <div className="text-right text-xs text-gray-500">
-                      {entry.date && <p>{new Date(entry.date).toLocaleDateString()}</p>}
-                      {entry.mileage && <p>{Number(entry.mileage).toLocaleString()} mi</p>}
-                    </div>
-                  </div>
-                  {entry.description && (
-                    <p className="mt-2 text-sm leading-relaxed text-gray-400">{entry.description}</p>
-                  )}
-                  <div className="mt-3 flex flex-wrap gap-3 text-xs text-gray-500">
-                    {entry.cost && <span>💰 ${Number(entry.cost).toLocaleString()}</span>}
-                    {entry.vendor && <span>🏪 {entry.vendor}</span>}
-                  </div>
+
+                <div className="space-y-3">
+                  {monthEntries.map((entry: any) => {
+                    const isExpanded = expandedEntry === entry.id;
+                    return (
+                      <div key={entry.id} className="relative pl-14">
+                        {/* Dot on timeline */}
+                        <div className={`absolute left-[6px] top-4 z-10 h-3 w-3 rounded-full border-2 ${
+                          entry.entry_type === "service" ? "border-blue-400 bg-blue-500" :
+                          entry.entry_type === "modification" ? "border-purple-400 bg-purple-500" :
+                          entry.entry_type === "milestone" ? "border-emerald-400 bg-emerald-500" :
+                          "border-gray-400 bg-gray-500"
+                        }`} />
+
+                        {/* Entry card */}
+                        <div
+                          onClick={() => setExpandedEntry(isExpanded ? null : entry.id)}
+                          className={`card-gradient card-border group cursor-pointer rounded-xl p-4 transition-all hover:border-white/10 ${
+                            isExpanded ? "border-amber-500/20 bg-amber-500/5" : ""
+                          }`}
+                        >
+                          <div className="flex items-start justify-between gap-3">
+                            <div className="flex-1">
+                              <div className="flex items-center gap-2 mb-1">
+                                <span className={`rounded-md border px-2 py-0.5 text-xs font-medium capitalize ${entryTypeColors[entry.entry_type] || entryTypeColors.other}`}>
+                                  {entryTypeIcons[entry.entry_type]} {entry.entry_type}
+                                </span>
+                              </div>
+                              <h4 className="font-semibold text-white group-hover:text-amber-400 transition-colors">
+                                {entry.title}
+                              </h4>
+                            </div>
+                            <div className="shrink-0 text-right text-xs text-gray-500">
+                              {entry.date && <p>{new Date(entry.date).toLocaleDateString("en-US", { month: "short", day: "numeric" })}</p>}
+                              {entry.mileage && <p>{Number(entry.mileage).toLocaleString()} mi</p>}
+                            </div>
+                          </div>
+
+                          {/* Expanded details */}
+                          {isExpanded && (
+                            <div className="mt-4 space-y-3 border-t border-white/5 pt-4">
+                              {entry.description && (
+                                <p className="text-sm leading-relaxed text-gray-400">{entry.description}</p>
+                              )}
+                              <div className="flex flex-wrap gap-4 text-sm">
+                                {entry.cost && (
+                                  <div className="flex items-center gap-1">
+                                    <span className="text-gray-500">💰</span>
+                                    <span className="font-medium text-amber-400">${Number(entry.cost).toLocaleString()}</span>
+                                  </div>
+                                )}
+                                {entry.vendor && (
+                                  <div className="flex items-center gap-1">
+                                    <span className="text-gray-500">🏪</span>
+                                    <span className="text-gray-300">{entry.vendor}</span>
+                                  </div>
+                                )}
+                              </div>
+                              {/* AI-extracted data */}
+                              {entry.ai_extracted_data && (
+                                <div className="rounded-lg border border-amber-500/10 bg-amber-500/5 p-3">
+                                  <p className="mb-2 text-xs font-medium text-amber-400">🤖 AI Extracted Data</p>
+                                  <div className="space-y-1 text-xs text-gray-500">
+                                    {entry.ai_extracted_data.items?.map((item: any, i: number) => (
+                                      <p key={i}>{item.name} ×{item.quantity} @ ${item.unit_price}</p>
+                                    ))}
+                                  </div>
+                                </div>
+                              )}
+                              {/* Receipt thumbnail */}
+                              {entry.receipt_image_url && (
+                                <img src={entry.receipt_image_url} alt="Receipt"
+                                  className="w-full max-w-xs rounded-lg border border-white/5" />
+                              )}
+                            </div>
+                          )}
+
+                          {/* Collapsed summary */}
+                          {!isExpanded && (
+                            <div className="mt-2 flex flex-wrap gap-3 text-xs text-gray-500">
+                              {entry.cost && <span className="text-amber-400">${Number(entry.cost).toLocaleString()}</span>}
+                              {entry.vendor && <span>{entry.vendor}</span>}
+                              {entry.description && (
+                                <span className="truncate max-w-[200px]">{entry.description}</span>
+                              )}
+                              {entry.ai_extracted_data && (
+                                <span className="text-amber-500/60">🤖 AI scanned</span>
+                              )}
+                            </div>
+                          )}
+                        </div>
+                      </div>
+                    );
+                  })}
                 </div>
               </div>
             ))}
