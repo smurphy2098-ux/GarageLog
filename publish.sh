@@ -9,7 +9,10 @@ cd "$(dirname "$0")"
 
 # Group-writable so any team member can publish over another member's build.
 umask 002
-mkdir -p .run
+mkdir -p .run .tmp
+
+# Use a writable tempdir for bun (sandbox restricts /tmp for some users)
+export TMPDIR="$(pwd)/.tmp"
 
 # The workspace starts as sources only (the coming-soon placeholder serves from
 # the image's pre-built copy), so the first publish installs deps here. No-op

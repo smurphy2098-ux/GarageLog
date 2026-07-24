@@ -2,48 +2,76 @@
  * GarageLog — Authentication utilities
  *
  * Password hashing, token generation, and session management.
- * Uses Node.js built-in crypto (PBKDF2) — no third-party auth libraries.
+ * Uses Web Crypto APIs (SubtleCrypto) — works in both Node and browser runtimes.
  */
 
-import { randomBytes, scryptSync, timingSafeEqual } from "node:crypto";
 import { sql } from "~/db";
 
-// ── Password hashing ──────────────────────────────────────────────────────────
+// ── Password hashing (Web Crypto PBKDF2) ─────────────────────────────────────
 
-const HASH_ALGORITHM = "scrypt";
-const KEY_LENGTH = 64;
+const PBKDF2_ITERATIONS = 100_000;
+const PBKDF2_HASH = "SHA-256";
 const SALT_LENGTH = 32;
-const SCRYPT_PARAMS = { N: 16384, r: 8, p: 1 };
+const KEY_LENGTH = 32;
+
+function bufferToBase64url(buffer: ArrayBuffer): string {
+  const bytes = new Uint8Array(buffer);
+  let str = "";
+  for (const byte of bytes) str += String.fromCharCode(byte);
+  return btoa(str).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
+}
+
+function base64urlToBuffer(b64u: string): ArrayBuffer {
+  const str = atob(b64u.replace(/-/g, "+").replace(/_/g, "/"));
+  const buf = new Uint8Array(str.length);
+  for (let i = 0; i < str.length; i++) buf[i] = str.charCodeAt(i);
+  return buf.buffer;
+}
+
+async function pbkdf2(password: string, salt: ArrayBuffer): Promise<ArrayBuffer> {
+  const key = await crypto.subtle.importKey(
+    "raw",
+    new TextEncoder().encode(password),
+    "PBKDF2",
+    false,
+    ["deriveBits"],
+  );
+  return crypto.subtle.deriveBits(
+    { name: "PBKDF2", hash: PBKDF2_HASH, salt, iterations: PBKDF2_ITERATIONS },
+    key,
+    KEY_LENGTH * 8,
+  );
+}
 
 /**
- * Hash a plaintext password using scrypt with a random salt.
- * Returns a string in the format: "scrypt:$salt:$hash" (all base64url).
+ * Hash a plaintext password using PBKDF2 with a random salt.
+ * Returns "pbkdf2:$salt:$hash" (base64url encoded).
  */
-export function hashPassword(password: string): string {
-  const salt = randomBytes(SALT_LENGTH);
-  const derivedKey = scryptSync(password, salt, KEY_LENGTH, SCRYPT_PARAMS);
+export async function hashPassword(password: string): Promise<string> {
+  const salt = crypto.getRandomValues(new Uint8Array(SALT_LENGTH));
+  const derived = await pbkdf2(password, salt.buffer);
   return [
-    HASH_ALGORITHM,
-    salt.toString("base64url"),
-    derivedKey.toString("base64url"),
+    "pbkdf2",
+    bufferToBase64url(salt.buffer),
+    bufferToBase64url(derived),
   ].join(":");
 }
 
 /**
  * Verify a plaintext password against a stored hash string.
  */
-export function verifyPassword(password: string, stored: string): boolean {
+export async function verifyPassword(password: string, stored: string): Promise<boolean> {
   const parts = stored.split(":");
-  if (parts.length !== 3 || parts[0] !== HASH_ALGORITHM) {
-    return false;
-  }
+  if (parts.length !== 3 || parts[0] !== "pbkdf2") return false;
   const [, saltB64u, hashB64u] = parts;
   try {
-    const salt = Buffer.from(saltB64u, "base64url");
-    const expected = Buffer.from(hashB64u, "base64url");
-    const actual = scryptSync(password, salt, KEY_LENGTH, SCRYPT_PARAMS);
-    // Timing-safe comparison prevents timing attacks
-    return actual.length === expected.length && timingSafeEqual(actual, expected);
+    const salt = base64urlToBuffer(saltB64u);
+    const expected = base64urlToBuffer(hashB64u);
+    const actual = await pbkdf2(password, salt);
+    if (actual.byteLength !== expected.byteLength) return false;
+    const a = new Uint8Array(actual);
+    const b = new Uint8Array(expected);
+    return a.every((v, i) => v === b[i]);
   } catch {
     return false;
   }
@@ -58,12 +86,12 @@ const SESSION_DURATION_MS = 7 * 24 * 60 * 60 * 1000; // 7 days
  * Generate a cryptographically random session token.
  */
 export function generateToken(): string {
-  return randomBytes(TOKEN_LENGTH).toString("base64url");
+  const bytes = crypto.getRandomValues(new Uint8Array(TOKEN_LENGTH));
+  return bufferToBase64url(bytes.buffer);
 }
 
 /**
  * Create a new session for a user — inserts into the DB and returns the token.
- * The caller is responsible for setting the cookie on the response.
  */
 export async function createSession(userId: string): Promise<{
   token: string;
@@ -81,16 +109,13 @@ export async function createSession(userId: string): Promise<{
 
 /**
  * Validate a session token — returns the user record if valid, null otherwise.
- * Automatically cleans up expired sessions.
  */
 export async function validateSession(
   token: string,
 ): Promise<{ id: string; email: string; name: string } | null> {
   if (!token) return null;
   const db = sql();
-  // Clean expired sessions opportunistically
   await db`DELETE FROM sessions WHERE expires_at < NOW()`;
-  // Look up the session
   const rows = await db`
     SELECT u.id, u.email, u.name
     FROM sessions s
@@ -127,10 +152,9 @@ export function getTokenFromRequest(request: Request): string | null {
  * Set the session cookie on a Response (for login/signup).
  */
 export function setSessionCookie(response: Response, token: string, expiresAt: Date): Response {
-  const expires = expiresAt.toUTCString();
   response.headers.set(
     "set-cookie",
-    `garagelog_session=${token}; HttpOnly; Secure; SameSite=Lax; Path=/; Expires=${expires}`,
+    `garagelog_session=${token}; HttpOnly; Secure; SameSite=Lax; Path=/; Expires=${expiresAt.toUTCString()}`,
   );
   return response;
 }
@@ -149,16 +173,11 @@ export function clearSessionCookie(response: Response): Response {
 /**
  * Require authentication — extracts and validates the session token from a
  * request. Returns the user if authenticated, or throws a redirect response.
- *
- * Usage in a server function:
- *   const user = await requireAuth(event.request);
  */
 export async function requireAuth(request: Request): Promise<{ id: string; email: string; name: string }> {
   const token = getTokenFromRequest(request);
   const user = token ? await validateSession(token) : null;
   if (!user) {
-    // TanStack Start server functions run on the server — we throw a Response
-    // that the router can catch and redirect.
     throw new Response(null, {
       status: 302,
       headers: { location: "/login" },

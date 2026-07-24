@@ -6,9 +6,6 @@
  * In production, this would call a vision API (OpenAI GPT-4V, Google Gemini, etc.)
  */
 
-import { readFile } from "node:fs/promises";
-import { existsSync } from "node:fs";
-
 export interface ReceiptItem {
   name: string;
   quantity: number;
@@ -42,14 +39,15 @@ export interface ReceiptExtraction {
  * In production, replace the implementation with an actual vision API call.
  */
 export async function extractReceiptData(imagePath: string): Promise<ReceiptExtraction> {
-  // Verify file exists
-  if (!existsSync(imagePath)) {
+  // Verify file exists using Bun's native API
+  const file = Bun.file(imagePath);
+  if (!(await file.exists())) {
     throw new Error(`Image file not found: ${imagePath}`);
   }
 
   // Read the image file
-  const imageBuffer = await readFile(imagePath);
-  const imageBytes = imageBuffer.length;
+  const imageBuffer = await file.arrayBuffer();
+  const imageBytes = imageBuffer.byteLength;
 
   // For MVP: generate a realistic extraction based on the file characteristics
   // In production, this would call an actual vision API
@@ -64,7 +62,7 @@ export async function extractReceiptData(imagePath: string): Promise<ReceiptExtr
  * Production: calls a vision API.
  */
 async function performExtraction(
-  _imageBuffer: Buffer,
+  _imageBuffer: ArrayBuffer,
   _imageBytes: number,
 ): Promise<ReceiptExtraction> {
   // NOTE: In production, send the image buffer to OpenAI GPT-4V or Google Gemini
@@ -72,7 +70,6 @@ async function performExtraction(
   // and prices, subtotal, tax, and total from this receipt image."
 
   // For MVP, return a template that the client can fill
-  // The actual vision work would be done by the model calling this function
   return {
     vendor: "",
     date: null,
@@ -94,7 +91,6 @@ async function performExtraction(
 /**
  * Simulate an AI-powered extraction.
  * This is the function that would be replaced with a real vision API call.
- * For the MVP demo, it returns plausible receipt data based on common patterns.
  */
 export function simulateExtraction(): ReceiptExtraction {
   const vendors = [

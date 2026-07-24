@@ -1,13 +1,14 @@
 import { createFileRoute, redirect } from "@tanstack/react-router";
 import { createServerFn } from "@tanstack/react-start";
 import { useState } from "react";
-import { getTokenFromRequest, validateSession } from "~/auth";
+import { getTokenFromRequest } from "~/auth-client";
 
 // Server function to check if user is already logged in
 const checkAuth = createServerFn({ method: "GET" }).handler(async ({ request }) => {
   const token = getTokenFromRequest(request);
   if (token) {
-    const user = await validateSession(token);
+    const { validateSession } = await import("~/auth");
+  const user = await validateSession(token);
     if (user) return { authenticated: true };
   }
   return { authenticated: false };

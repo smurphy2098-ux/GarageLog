@@ -1,17 +1,18 @@
 import { createFileRoute, redirect } from "@tanstack/react-router";
 import { createServerFn } from "@tanstack/react-start";
 import { useState, useEffect } from "react";
-import { getTokenFromRequest, validateSession } from "~/auth";
+import { getTokenFromRequest } from "~/auth-client";
 
 const requireAuth = createServerFn({ method: "GET" }).handler(async ({ request }) => {
   const token = getTokenFromRequest(request);
   if (!token) throw redirect({ to: "/login" });
+  const { validateSession } = await import("~/auth");
   const user = await validateSession(token);
   if (!user) throw redirect({ to: "/login" });
   return user;
 });
 
-export const Route = createFileRoute("/cars/$id")({
+export const Route = createFileRoute("/cars/id")({
   loader: async () => {
     const user = await requireAuth();
     return { user };

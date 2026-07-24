@@ -1,8 +1,5 @@
-import { createAPIFileRoute } from "@tanstack/react-start/api";
+import { createAPIFileRoute } from "~/lib/api-route";
 import { getTokenFromRequest, validateSession } from "~/auth";
-import { writeFile, mkdir } from "node:fs/promises";
-import { join } from "node:path";
-import { randomUUID } from "node:crypto";
 
 const UPLOADS_DIR = "/home/team/shared/uploads";
 
@@ -31,7 +28,7 @@ export const Route = createAPIFileRoute("/api/upload")({
       // Validate file type
       const allowedTypes = ["image/jpeg", "image/png", "image/webp", "image/gif"];
       if (!allowedTypes.includes(file.type)) {
-        return new Response(JSON.stringify({ ok: false, error: "Invalid file type. Use JPEG, PNG, WebP, or GIF." }), {
+        return new Response(JSON.stringify({ ok: false, error: "Invalid file type. Use JPEG, PNG, WebP, or GIF." },), {
           status: 400,
           headers: { "content-type": "application/json" },
         });
@@ -39,20 +36,17 @@ export const Route = createAPIFileRoute("/api/upload")({
 
       // Validate file size (max 10MB)
       if (file.size > 10 * 1024 * 1024) {
-        return new Response(JSON.stringify({ ok: false, error: "File too large. Max 10MB." }), {
+        return new Response(JSON.stringify({ ok: false, error: "File too large. Max 10MB." },), {
           status: 400,
           headers: { "content-type": "application/json" },
         });
       }
 
-      // Ensure uploads dir exists
-      await mkdir(UPLOADS_DIR, { recursive: true });
-
-      // Save file
+      // Save file using Bun's native API (creates dirs automatically)
       const ext = file.type.split("/")[1] || "jpg";
-      const filename = `${randomUUID()}.${ext}`;
-      const buffer = Buffer.from(await file.arrayBuffer());
-      await writeFile(join(UPLOADS_DIR, filename), buffer);
+      const filename = `${crypto.randomUUID()}.${ext}`;
+      const filepath = `${UPLOADS_DIR}/${filename}`;
+      await Bun.write(filepath, await file.arrayBuffer());
 
       return new Response(
         JSON.stringify({ ok: true, url: `/uploads/${filename}` }),

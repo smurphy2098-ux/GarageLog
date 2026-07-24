@@ -1,10 +1,11 @@
 import { createFileRoute, redirect } from "@tanstack/react-router";
 import { createServerFn } from "@tanstack/react-start";
-import { getTokenFromRequest, validateSession } from "~/auth";
+import { getTokenFromRequest } from "~/auth-client";
 
 const getCurrentUser = createServerFn({ method: "GET" }).handler(async ({ request }) => {
   const token = getTokenFromRequest(request);
   if (!token) throw redirect({ to: "/login" });
+  const { validateSession } = await import("~/auth");
   const user = await validateSession(token);
   if (!user) throw redirect({ to: "/login" });
   return user;
